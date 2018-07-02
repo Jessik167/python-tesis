@@ -15,9 +15,9 @@ def crea_grafo_aleatorio(numNodos, prob):
 
 '''Muestra grafo en una imagen'''
 def Muestra_Grafo(G):
-    #pos = nx.circular_layout(G, scale=5)
-    pos = nx.spring_layout(G, scale=5)  #Genera la posición del grafo
-    nx.draw(G, pos, with_labels=True)    #Dibuja el grafo deacuerdo a sus parámetros
+    pos = nx.circular_layout(G, scale=5)
+    #pos = nx.spring_layout(G, scale=5)  #Genera la posición del grafo
+    nx.draw(G, pos, with_labels=True)    #Dibuja el grafo de acuerdo a sus parámetros
     plt.draw()  #Crea el dibujo
     plt.show()  #muestra el dibujo
 
@@ -33,6 +33,8 @@ def colorea_grafo(G, Bolsas_colores):
             color_map.append('red') #si el nodo se encuentra en la bolsa 1 lo colorea rojo
         elif id in Bolsas_colores[2]:
             color_map.append('green')   #si el nodo se encuentra en la bolsa 2 lo colorea verde
+        elif id in Bolsas_colores[3]:
+            color_map.append('purple')   #si el nodo se encuentra en la bolsa 2 lo colorea verde
         else:
             color_map.append('yellow')  #si el nodo no se encuentra en ninguna otra bolsa lo colorea amarillo
     #pos = nx.fruchterman_reingold_layout(G, scale=100)  # Genera la posición del grafo
@@ -57,10 +59,10 @@ def crea_grafo(namefile):
 def crea_Heap(G, numColores):
     heap = []
     nodo = []
-    clase = numColores
+    clase = numColores * -1 #se multiplica por -1 debido a que con el maxheap queremos en mínimo número de clases
     for nodo in G.degree:   #devuelve una tupla con el id y el grado del nodo
         nodo = nodo + (clase,)    #agregamos clase a la tupla
-        heappush(heap, (nodo[1], nodo[2], nodo[0], set()))   #agregamos la tupla(grado,clase,id, conjunto clases válidas)
+        heappush(heap, (nodo[2], nodo[1], nodo[0], set()))   #agregamos la tupla(clase,grado,id, conjunto clases válidas)
                                                        #al heap
     heapq._heapify_max(heap)    #hace un max heap
     return heap #regresa el heap
@@ -96,7 +98,7 @@ def disminuye_clases(G, heap, id, ind_Bolsa):
             heap[ids.index(id2)] = heap[-1]   # mueve el valor viejo al final del heap
             heap.pop()  # lo elimina
             if not ind_Bolsa in temp[3]:
-                temp[1] = temp[1]-1 # disminuye en uno la clase
+                temp[0] = temp[0] - 1 # aumenta en uno la clase
             temp[3].add(ind_Bolsa)
             heappush(heap, tuple(temp))  # ingresa la tupla con los valores actualizados
 
@@ -125,18 +127,19 @@ def crea_individuo(G, numColores):
                                                         #contiene su propio diccionario el cual contendrá los nodos
     #print(Bolsas_colores)
     while heap: #recorre el heap hasta que esté vacío
-        grado,clase,id,conj = heappop(heap) #toma los datos del heap (el primer nodo)
+        clase,grado,id,conj = heappop(heap) #toma los datos del heap (el primer nodo)
         #ver_heap(heap[:])  # Muestra los elementos del heap (envía copia del heap)
         while i< numColores:    #busca la bolsa que no contenga adyacencias
-            if es_compatible_bolsa(i, G, id, Bolsas_colores):
-                i = i+1
+            #if es_compatible_bolsa(i, G, id, Bolsas_colores):
+            if i in conj:
+                i = i + 1
             else: break
         if i < numColores:   #inserta el nodo actual en la bolsa que NO contiene adyacencias
             Bolsas_colores[i][id] = id
         else:   #El nodo contiene adyacencias en todas las bolsas (lo ingresa en una aleatoria)
             Bolsas_colores[random.randint(0, numColores-1)][id] = id
         disminuye_clases(G, heap, id, i)  # disminuye en uno las clases adyacentes
-        heapq._heapify_max(heap)  # Vuelve a ordenar el heap
+        #heapq._heapify_max(heap)  # Vuelve a ordenar el heap
         i = 0
 
     #print('Bolsas de colores: ')
