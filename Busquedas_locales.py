@@ -1,6 +1,6 @@
 import networkx as nx
 import numba
-from numba import cuda
+from numba import cuda, prange
 from numba.cuda.random import xoroshiro128p_uniform_float32
 import math
 import numpy as np
@@ -77,7 +77,7 @@ def probabilidadAceptar(delta):
 
 '''Fórmula de Boltzmann para determinar si acepta o no el cambio de vecindario'''
 @numba.jit
-def probabilidadAceptarCUDA(delta,rng_states,id):
+def probabilidadAceptarCUDA(delta, rng_states, id):
     if delta < 0:
         return True
     else:
@@ -103,7 +103,7 @@ def BolsaAleatoria(bolsa,numColores):
 @numba.jit
 def BolsaAleatoriaCUDA(bolsa,numColores,rng_states,id):
     while True:
-        rand = xoroshiro128p_uniform_float32(rng_states, id) #Elige una bolsa aleatoria
+        rand = int(xoroshiro128p_uniform_float32(rng_states, id)*numColores) #Elige una bolsa aleatoria
         if rand != bolsa:   #si la bolsa es diferente a la elegida
             return rand #Regresa el indice de la bolsa
 
@@ -197,9 +197,10 @@ def es_vacia(Bolsa,numNodos):
 @numba.jit
 def Busqueda_MetropolisCUDA(M,individuo,probabilidades,AristMono,numColores,numNodos,rng_states,id):
     if AristMono != 0:
-        nodo = 0
-        vacia = 0
-        for i in range(busqueda_vecindario):
+        for i in prange(busqueda_vecindario):
+            nodo = 0
+            vacia = 0
+            #delta = 0
             #print(i)
             while vacia == 0:
                 bolsaProbabilistica = int(bolsaAleatoriaProbabilidadCUDA(probabilidades,numColores,rng_states,id))  # Elige una bolsa con probabilidad a su número de nodos
@@ -209,19 +210,22 @@ def Busqueda_MetropolisCUDA(M,individuo,probabilidades,AristMono,numColores,numN
             while nodo == 0:    #Selecciona un nodo al azar
                 r = int(xoroshiro128p_uniform_float32(rng_states, id)*numNodos)  #selecciona un número al azar del cero al número de nodos
                 nodo = individuo[bolsaProbabilistica][r]
-                print(id, r, nodo, bolsaProbabilistica)
             monoAct = num_mono_bolsaCUDA(individuo[bolsaProbabilistica], r, M,numNodos)  # calcula el número de aristas monocromáticas del nodo en la bolsa elegida
-            #print(monoAct)
-            #'''
-            '''BolsaNueva = BolsaAleatoriaCUDA(bolsaProbabilistica, numColores,rng_states,id)
-            monopost = num_mono_bolsaCUDA(individuo[BolsaNueva], nodo, M,numNodos,rng_states,id)
+            #print(id, r, nodo, bolsaProbabilistica,monoAct)
+            BolsaNueva = BolsaAleatoriaCUDA(bolsaProbabilistica, numColores,rng_states,id)
+            #print(bolsaProbabilistica, BolsaNueva, r)
+            monopost = num_mono_bolsaCUDA(individuo[BolsaNueva], r, M,numNodos)
             delta = monopost - monoAct
+            #print(delta, AristMono)
             if probabilidadAceptarCUDA(delta,rng_states,id):
-                AristasMono = AristasMono + delta
+                #print("acepta")
+                AristMono = AristMono + delta
+                #print(AristMono)
                 individuo[bolsaProbabilistica][nodo] = 0  # Elimina el nodo de la bolsa
                 individuo[BolsaNueva][nodo] = 1  # Inserta el nodo en otra bolsa al azar
-            if AristasMono == 0:
-                return'''
+            if AristMono == 0:
+                return
+
 
 
 '''Recibe el grafo para obtener las adyacencias de los nodos, el individuo que contiene la información, las probabilidades

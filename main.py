@@ -13,11 +13,11 @@ import time
 
 
 path='C:/Users/jessi/PycharmProjects/GrafosRand/GrafosAleatorios/'
-Nombre_benchmark = '2-Fullins_3'#"myciel3"#"inithx.i.1" #'inithx.i.1' #"fpsol2.i.1" #'flat1000_60_0'  #"myciel3" #"myciel4" #"DSJC250-5" #
+Nombre_benchmark = "inithx.i.1"#'2-Fullins_3'#"myciel3" #'inithx.i.1' #"fpsol2.i.1" #'flat1000_60_0'  #"myciel3" #"myciel4" #"DSJC250-5" #
 
-tam_poblacion = 20
+tam_poblacion = 32
 numGeneraciones = 20
-numColores = 4
+numColores = 54
 numNodosAle = 100
 probabilidad = 0.7
 grafo = 10
@@ -41,7 +41,7 @@ def InicializacionPoblacion(poblacion, probabilidades, G,numNodos):# Crea instan
 
 
 
-
+'''Toma la solución greedy smallest last y la convierte a un individuo en diccionario'''
 def TomaGreedy(G):
     d = nx.coloring.greedy_color(G, strategy='smallest_last')   #Utiliza estrategia greedy
     Bolsas_colores = {k: {} for k in range(numColores)}
@@ -55,7 +55,8 @@ def TomaGreedy(G):
 
 
 
-
+'''Cuza a los individuos, tomando aleatoriamente cada uno de los indices dentro del total de la población, 
+y los cruza utilizando GPX'''
 def CruzaIndividuos(poblacion,numNodos, padres,probabilidades):
     individuos = [] #Lista que contendrá a los dos individuos a elegir
     nuevos_indiv = {}  #Lista que contendrá al nuevo individuo
@@ -113,6 +114,28 @@ def ActualizaPoblacion(poblacion, hijo, AristasMono, AristasMonohijo,probabilida
         probabilidades[indiceP[0]] = probab_hijo
 
 
+'''Convierte el hijo en un diccionario de colores'''
+def convert_hijo(Arr,numNodos):
+    Bolsas_colores = {k: {} for k in range(numColores)}
+    for i in range(numColores):
+        for j in range(numNodos):
+            if Arr[i][j] == 1:
+                Bolsas_colores[i][j] = j
+    return Bolsas_colores
+
+
+def ActualizaPoblacionCUDA(poblacion,hijo,AristasMono,AristasMonoHijo,probabilidades,probabilidadHijo,indicesP,numNodos):
+    if AristasMono[indicesP[0]] < AristasMono[indicesP[1]]: #Si el padre 2 tiene mayor número de aristas mono que el padre 1 entonces...
+        poblacion[indicesP[1]]= convert_hijo(hijo,numNodos)    #El hijo reemplaza al padre 2
+        AristasMono[indicesP[1]]= AristasMonoHijo    #actualiza las aristas mono del padre reemplazado con las del hijo
+        probabilidades[indicesP[1]]= probabilidadHijo
+    else:                                   #Si no...
+        poblacion[indicesP[0]] = convert_hijo(hijo,numNodos)   #El hijo reemplaza al padre 1
+        AristasMono[indicesP[0]] = AristasMonoHijo   #actualiza las aristas mono del padre reemplazado con las del hijo
+        probabilidades[indicesP[0]] = probabilidadHijo
+
+
+
 '''Compara los resultados'''
 def sonIguales(resultados,tam):
     primero = resultados[0]  #Toma el primer resultado
@@ -124,6 +147,7 @@ def sonIguales(resultados,tam):
         else:
             return False    #Si no, termina
     return True #Si termina el ciclo es que todos fueron iguales
+
 
 
 def convierte_individuonumpy(individuo,probabilidades,Amono,indi_np,prob_np,AmonoNp,tam,bolsas):
@@ -192,15 +216,16 @@ def main():
 
     if not termina: #Continua si arriba NO encontró un individuo con aristas monocromáticas igual a cero
         mitad_poblacion = int(tam_poblacion / 2)
-        for gen in range(numGeneraciones):
-            #individuos de arreglos numpy
-            nuevos_individuosNp = np.zeros((mitad_poblacion, numColores, numNodos), dtype= np.int64)
-            proba_hijoNp = np.zeros((mitad_poblacion,numColores), dtype=np.float64)
-            AMonoNuevoNp = np.zeros((mitad_poblacion), dtype=np.int64)
-            bloques= 10
-            hilos= 21
-            rng_states = create_xoroshiro128p_states( (bloques*hilos)* bloques, seed=1)
 
+        # individuos de arreglos numpy
+        nuevos_individuosNp = np.zeros((mitad_poblacion, numColores, numNodos), dtype=np.int64)
+        proba_hijoNp = np.zeros((mitad_poblacion, numColores), dtype=np.float64)
+        AMonoNuevoNp = np.zeros((mitad_poblacion), dtype=np.int64)
+        bloques = 10
+        hilos = 16
+        rng_states = create_xoroshiro128p_states((bloques * hilos) * bloques, seed=1)
+
+        for gen in range(numGeneraciones):
             nuevos_individuos = []
             AMonoNuevo = []
             ind_padres = []
@@ -219,10 +244,12 @@ def main():
             convierte_individuonumpy(nuevos_individuos, probabilidadeshijo,AMonoNuevo, nuevos_individuosNp, proba_hijoNp,AMonoNuevoNp,
                                      mitad_poblacion, numColores)
             BusquedaLocal_CUDA[bloques,hilos](nuevos_individuosNp,proba_hijoNp,AMonoNuevoNp, Matriz_Adyacencia,hilos,numNodos,mitad_poblacion,rng_states)   #realiza la búsqueda local en CUDA
-            print("Sale")
+            #print("Sale")
             for p in range(mitad_poblacion):
                 #AMonoNuevo[p] = BusquedaLocal(nuevos_individuos[p],probabilidadeshijo[p],AMonoNuevo[p], G)   #realiza la búsqueda local con el número de aristas monocromáticas del nuevo individuo
-                ActualizaPoblacion(poblacion,nuevos_individuos[p],AMonocromaticas,AMonoNuevo[p], probabilidades, probabilidadeshijo[p], ind_padres[p]) #reemplaza al hijo con el peor individuo
+                #ActualizaPoblacion(poblacion,nuevos_individuos[p],AMonocromaticas,AMonoNuevo[p], probabilidades, probabilidadeshijo[p], ind_padres[p]) #reemplaza al hijo con el peor individuo
+
+                ActualizaPoblacionCUDA(poblacion,nuevos_individuosNp[p],AMonocromaticas,AMonoNuevoNp[p],probabilidades,proba_hijoNp,ind_padres[p],numNodos) #reemplaza al hijo con el peor individuo
 
                 if AMonoNuevo[p] < best:  # Guarda si alguno de los hijos obtuvo menor número de aristas monocromáticas
                     best = copy.deepcopy(AMonoNuevo[p])
