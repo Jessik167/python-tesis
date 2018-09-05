@@ -10,7 +10,7 @@ import random
 T = 2.7
 k = 1.38064852
 iteraciones = 20
-busqueda_vecindario = 100
+busqueda_vecindario = 1000
 
 
 '''Mueve un nodo al azar a otra bolsa (se mueve en el vecindario), solo realiza el movimiento si genera un progreso'''
@@ -47,9 +47,9 @@ def vecino_metropolis(G,individuo, probabilidades,AristasMono, numColores):
                 break
         dic = dict(individuo[bolsaProbabilistica])   #Toma el diccionario con los nodos de la bolsa elegida
         nodo = random.choice(list(dic.keys()))   #Elige un nodo al azar de la bolsa
-        monoAct = num_mono_bolsaM(dic, nodo, G) #calcula el número de aristas monocromáticas del nodo en la bolsa elegida
+        monoAct = num_mono_bolsa(dic, nodo, G) #calcula el número de aristas monocromáticas del nodo en la bolsa elegida
         BolsaNueva = BolsaAleatoria(bolsaProbabilistica, numColores)
-        monopost = num_mono_bolsaM(individuo[BolsaNueva], nodo, G)
+        monopost = num_mono_bolsa(individuo[BolsaNueva], nodo, G)
         delta = monopost - monoAct
         if probabilidadAceptar(delta):
             AristasMono = AristasMono + delta
@@ -76,7 +76,7 @@ def probabilidadAceptar(delta):
 
 
 '''Fórmula de Boltzmann para determinar si acepta o no el cambio de vecindario'''
-@numba.jit
+@numba.jit()
 def probabilidadAceptarCUDA(delta, rng_states, id):
     if delta < 0:
         return True
@@ -100,7 +100,7 @@ def BolsaAleatoria(bolsa,numColores):
 
 
 '''Elige una bolsa aleatoria que no sea la que ya eligió probabilísticamente'''
-@numba.jit
+@numba.jit()
 def BolsaAleatoriaCUDA(bolsa,numColores,rng_states,id):
     while True:
         rand = int(xoroshiro128p_uniform_float32(rng_states, id)*numColores) #Elige una bolsa aleatoria
@@ -118,11 +118,12 @@ def bolsaAleatoriaProbabilidad (probabilidades, numColores):
             return i    #retorna el indice i
         else:
             l = l + probabilidades[i]    #si no a la variable l le suma probabilidad de la bolsa i
+    return i
 
 
 
 '''Elige una bolsa con probabilidad basada en el número de nodos contenidos en la bolsa'''
-@numba.jit
+@numba.jit()
 def bolsaAleatoriaProbabilidadCUDA (probabilidades, numColores,rng_states,id):
     r = xoroshiro128p_uniform_float32(rng_states, id) #selecciona un número al azar del cero al uno
     l = 0
@@ -131,6 +132,7 @@ def bolsaAleatoriaProbabilidadCUDA (probabilidades, numColores,rng_states,id):
             return i    #retorna el indice i
         else:
             l = l + probabilidades[i]    #si no a la variable l le suma probabilidad de la bolsa i
+    return i
 
 
 
@@ -157,7 +159,7 @@ def num_mono_bolsaM( bolsa, nodo, M):
 
 
 '''Calcula el número de aristas monocromáticas de la bolsa, dado un nodo, una bolsa y la matriz de adyacencia'''
-@numba.jit
+@numba.jit()
 def num_mono_bolsaCUDA( bolsa, nodo, M, numNodos):
     num_mono = 0    #Empieza con el NAM en cero
     for i in range(numNodos): #Toma el primer nodo en la bolsa
@@ -186,45 +188,49 @@ def numeroAristasMono(G, individuo, numColores):
 '''Verifica si la bolsa elegida está vacía o no, toma la bolsa
 y recorre la búsqueda sobre todos los nodos, si en todos es cero,
 entonces la bolsa está vacía'''
-@numba.jit
+@numba.jit()
 def es_vacia(Bolsa,numNodos):
     sum = 0
     for i in range(numNodos):
         sum += Bolsa[i]
     return sum
 
+bolsaProbabilidad_gpu = cuda.jit(device=True)(bolsaAleatoriaProbabilidadCUDA)
+esVacia_gpu = cuda.jit(device=True)(es_vacia)
+NAMBolsa_gpu = cuda.jit(device=True)(num_mono_bolsaCUDA)
+bolsaAleatoria_gpu = cuda.jit(device=True)(BolsaAleatoriaCUDA)
+probAcepta_gpu = cuda.jit(device=True)(probabilidadAceptarCUDA)
 
-@numba.jit
+@numba.jit()
 def Busqueda_MetropolisCUDA(M,individuo,probabilidades,AristMono,numColores,numNodos,rng_states,id):
     if AristMono != 0:
         for i in prange(busqueda_vecindario):
             nodo = 0
             vacia = 0
-            #delta = 0
             #print(i)
             while vacia == 0:
-                bolsaProbabilistica = int(bolsaAleatoriaProbabilidadCUDA(probabilidades,numColores,rng_states,id))  # Elige una bolsa con probabilidad a su número de nodos
+                bolsaProbabilistica = int(bolsaProbabilidad_gpu(probabilidades,numColores,rng_states,id))  # Elige una bolsa con probabilidad a su número de nodos
                 #print(bolsaProbabilistica)
-                vacia = es_vacia(individuo[bolsaProbabilistica],numNodos) #verifica que la bolsa no esté vacía
+                vacia = esVacia_gpu(individuo[bolsaProbabilistica],numNodos) #verifica que la bolsa no esté vacía
                 #print(id, vacia)
             while nodo == 0:    #Selecciona un nodo al azar
                 r = int(xoroshiro128p_uniform_float32(rng_states, id)*numNodos)  #selecciona un número al azar del cero al número de nodos
                 nodo = individuo[bolsaProbabilistica][r]
-            monoAct = num_mono_bolsaCUDA(individuo[bolsaProbabilistica], r, M,numNodos)  # calcula el número de aristas monocromáticas del nodo en la bolsa elegida
+            monoAct = NAMBolsa_gpu(individuo[bolsaProbabilistica], r, M,numNodos)  # calcula el número de aristas monocromáticas del nodo en la bolsa elegida
             #print(id, r, nodo, bolsaProbabilistica,monoAct)
-            BolsaNueva = BolsaAleatoriaCUDA(bolsaProbabilistica, numColores,rng_states,id)
+            BolsaNueva = bolsaAleatoria_gpu(bolsaProbabilistica, numColores,rng_states,id)
             #print(bolsaProbabilistica, BolsaNueva, r)
-            monopost = num_mono_bolsaCUDA(individuo[BolsaNueva], r, M,numNodos)
+            monopost = NAMBolsa_gpu(individuo[BolsaNueva], r, M,numNodos)
             delta = monopost - monoAct
             #print(delta, AristMono)
-            if probabilidadAceptarCUDA(delta,rng_states,id):
+            if probAcepta_gpu(delta,rng_states,id):
                 #print("acepta")
                 AristMono = AristMono + delta
                 #print(AristMono)
                 individuo[bolsaProbabilistica][nodo] = 0  # Elimina el nodo de la bolsa
                 individuo[BolsaNueva][nodo] = 1  # Inserta el nodo en otra bolsa al azar
             if AristMono == 0:
-                return
+                break
 
 
 
