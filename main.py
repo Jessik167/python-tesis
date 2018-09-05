@@ -1,4 +1,3 @@
-from numba import *
 from numba import cuda, vectorize
 from numba.cuda.random import create_xoroshiro128p_states
 import numpy as np
@@ -12,12 +11,11 @@ import copy
 import math
 import time
 
-metropolis_gpu = cuda.jit(device=True)(Busquedas_locales.Busqueda_MetropolisCUDA)
 
 path='C:/Users/jessi/PycharmProjects/GrafosRand/GrafosAleatorios/'
 Nombre_benchmark = "inithx.i.1"#'2-Fullins_3'#"myciel3" #'inithx.i.1' #"fpsol2.i.1" #'flat1000_60_0'  #"myciel3" #"myciel4" #"DSJC250-5" #
 
-#Datos Algoritmo Genético
+#Datos del Algoritmo genético
 tam_poblacion = 32
 numGeneraciones = 20
 numColores = 2
@@ -60,6 +58,19 @@ def TomaGreedy(G):
 
 
 
+'''Recibe dos padres, los cruza con el algoritmo GPX, retorna un nuevo individuo (hijo)'''
+def CruzaPadres(individuos,probabilidades,AMonoNuevo,numNodos,G):
+    nuevo_indiv = {}  # Lista que contendrá al nuevo individuo
+    nuevo_indiv = Cruza.GPX(individuos, numColores)  # Cruza a los padres y forma un nuevo individuo
+    probabilidades.append(bolsas.cuenta_nodos(nuevo_indiv, numColores, numNodos))  # cuenta los nodos de cada bolsa del individuo
+
+    # Calcula el número de aristas monocromáticas del individuo nuevo
+    AMonoNuevo.append(Busquedas_locales.numeroAristasMono(G, nuevo_indiv,numColores))
+
+    return nuevo_indiv
+
+
+
 '''Toma aleatoriamente dos de los indices dentro del total de la población, que serán los padres que se cruzarán'''
 def EligePadres(poblacion,numNodos, padres,probabilidades):
     individuos = [] #Lista que contendrá a los dos individuos a elegir
@@ -80,67 +91,12 @@ def EligePadres(poblacion,numNodos, padres,probabilidades):
 
 
 
-'''Recibe dos padres, los cruza con el algoritmo GPX, retorna un nuevo individuo (hijo)'''
-def CruzaPadres(individuos,probabilidades,AMonoNuevo,numNodos,G):
-    nuevo_indiv = {}  # Lista que contendrá al nuevo individuo
-    nuevo_indiv = Cruza.GPX(individuos, numColores)  # Cruza a los padres y forma un nuevo individuo
-    probabilidades.append(bolsas.cuenta_nodos(nuevo_indiv, numColores, numNodos))  # cuenta los nodos de cada bolsa del individuo
 
-    # Calcula el número de aristas monocromáticas del individuo nuevo
-    AMonoNuevo.append(Busquedas_locales.numeroAristasMono(G, nuevo_indiv,numColores))
-
-    return nuevo_indiv
-
-
-
-'''Cuza a los individuos, tomando aleatoriamente cada uno de los indices dentro del total de la población, 
-y los cruza utilizando GPX'''
-def CruzaIndividuos(poblacion,numNodos, padres,probabilidades):
-    individuos = [] #Lista que contendrá a los dos individuos a elegir
-    nuevos_indiv = {}  #Lista que contendrá al nuevo individuo
-    indices = ()
-
-    indices += (random.randint(0, tam_poblacion - 1),)  #Elige el índice a elegir del padre 1
-    while True:
-        r = random.randint(0, tam_poblacion - 1)
-        if r != indices[0]:
-            indices += (r,) #Elige el índice a elegir del padre 2
-            break
-    padres.append(indices)
-
-    individuos.append(copy.deepcopy(poblacion[padres[-1][0]]))   # toma el individuo al azar de la población (padre 1)
-    individuos.append(copy.deepcopy(poblacion[padres[-1][1]]))   # toma el individuo al azar de la población (padre 2)
-
-    nuevos_indiv = Cruza.GPX(individuos, numColores)   # Cruza a los padres y forma un nuevo individuo
-    probabilidades.append(bolsas.cuenta_nodos(nuevos_indiv, numColores, numNodos)) # cuenta los nodos de cada bolsa del individuo
-
-    return nuevos_indiv
-
-
-
-'''Manda a llamar a la búsqueda local en CUDA(metrópolis ó Escalando la colina)'''
-@cuda.jit
-def BusquedaLocal_CUDA(nuevo_individuos, probabilidades,Aristmono,MatrizAdjacencia, H,numNodos,tam_pobla,rng_states):
-    bx = cuda.blockIdx.x
-    thx = cuda.threadIdx.x
-    id = bx * H + thx
-
-    '''individuo = cuda.local.array(shape= (4,52), dtype= int32)
-    probabilidad = cuda.local.array(shape = 4, dtype = float32)
-    MatrizAdjCuda = cuda.local.array(shape=(52,52), dtype=int32)
-
-    if id < tam_pobla:
-        for j in range(tam_pobla):
-            individuo = nuevo_individuos[id]
-            probabilidad = probabilidades[id]
-            Aristas = Aristmono[id]
-        MatrizAdjCuda= MatrizAdjacencia
-        
-        metropolis_gpu(MatrizAdjCuda, individuo, probabilidad,Aristas,numColores,numNodos,rng_states,id)  # regresa al individuo después de realzar la búsqueda local
-        cuda.syncthreads()
-    '''
-    metropolis_gpu(MatrizAdjacencia,nuevo_individuos[id], probabilidades[id], Aristmono[id], numColores, numNodos, rng_states,id)  # regresa al individuo después de realzar la búsqueda local
-    cuda.syncthreads()
+'''Manda a llamar a la búsqueda local (metrópolis ó Escalando la colina)'''
+def BusquedaLocal(nuevo_individuo, probabilidad, Aristmono, M):
+     #nuevo_individuo, Arist = Busquedas_locales.Busqueda_Escalando(M, nuevo_individuo, probabilidad,Aristmono, numColores)  # regresa al individuo después de realzar la búsqueda local
+     nuevo_individuo, Arist = Busquedas_locales.Busqueda_Metropolis(M, nuevo_individuo, probabilidad, Aristmono,numColores)  # regresa al individuo después de realzar la búsqueda local
+     return Arist
 
 
 
@@ -156,7 +112,6 @@ def ActualizaPoblacion(poblacion, hijo, AristasMono, AristasMonohijo,probabilida
         probabilidades[indiceP[0]] = probab_hijo
 
 
-
 '''Convierte el hijo en un diccionario de colores'''
 def convert_hijo(Arr,numNodos):
     Bolsas_colores = {k: {} for k in range(numColores)}
@@ -168,20 +123,7 @@ def convert_hijo(Arr,numNodos):
 
 
 
-'''Actualiza la población por medio del arreglo numpy utilizado para CUDA'''
-def ActualizaPoblacionCUDA(poblacion,hijo,AristasMono,AristasMonoHijo,probabilidades,probabilidadHijo,indicesP,numNodos):
-    if AristasMono[indicesP[0]] < AristasMono[indicesP[1]]: #Si el padre 2 tiene mayor número de aristas mono que el padre 1 entonces...
-        poblacion[indicesP[1]]= convert_hijo(hijo,numNodos)    #El hijo reemplaza al padre 2
-        AristasMono[indicesP[1]]= AristasMonoHijo    #actualiza las aristas mono del padre reemplazado con las del hijo
-        probabilidades[indicesP[1]]= probabilidadHijo
-    else:                                   #Si no...
-        poblacion[indicesP[0]] = convert_hijo(hijo,numNodos)   #El hijo reemplaza al padre 1
-        AristasMono[indicesP[0]] = AristasMonoHijo   #actualiza las aristas mono del padre reemplazado con las del hijo
-        probabilidades[indicesP[0]] = probabilidadHijo
-
-
-
-'''Compara los resultados obtenidos en la generación actual y la anterior'''
+'''Compara los resultados'''
 def sonIguales(resultados,tam):
     primero = resultados[0]  #Toma el primer resultado
     i = 1
@@ -195,17 +137,6 @@ def sonIguales(resultados,tam):
 
 
 
-'''convierte de la estructura en python a un arreglo numpy para poder ser utilizado en CUDA'''
-def convierte_individuonumpy(individuo,probabilidades,Amono,indi_np,prob_np,AmonoNp,num_indiv,bolsas):
-    for i in range(num_indiv):
-        AmonoNp[i] = Amono[i]
-        for j in range(bolsas):
-            prob_np[i][j]= probabilidades[i][j]
-            for r in individuo[i][j]:
-                indi_np[i][j][r-1] = 1
-
-
-
 '''Actualiza el mejor individuo encontrado con el menor número de aristas monocromáticas (NAM)'''
 def ActualizaMejor(AMonocromaticas,poblacion,best,best_ind,ind,termina):
     if AMonocromaticas[ind] < best:  # Guarda al individuo que obtuvo el menor número de aristas monocromáticas
@@ -214,16 +145,6 @@ def ActualizaMejor(AMonocromaticas,poblacion,best,best_ind,ind,termina):
         #return AMonocromaticas[ind], poblacion[ind]
     if AMonocromaticas[ind]==0:
         termina = True
-
-
-
-'''Manda a llamar a la búsqueda local (metrópolis ó Escalando la colina)'''
-def BusquedaLocal(nuevo_individuo, probabilidad, Aristmono, M):
-     #nuevo_individuo, Arist = Busquedas_locales.Busqueda_Escalando(M, nuevo_individuo, probabilidad,
-     #                                                       Aristmono, numColores)  # regresa al individuo después de realzar la búsqueda local
-     nuevo_individuo, Arist = Busquedas_locales.Busqueda_Metropolis(M, nuevo_individuo, probabilidad,
-                                                             Aristmono,numColores)  # regresa al individuo después de realzar la búsqueda local
-     return Arist
 
 
 
@@ -260,7 +181,7 @@ def Termina_Generacion(bestAnt,AMonoNuevo,gen,NumGenIgual):
 
 
 '''Función encargada de imprimir al mejor individuo, el mejor número de aristas monocromáticas, y el tiempo total del programa'''
-def imprimeResultados(best,best_ind,start_time):
+def imprimeResultados(best,best_ind,start_time,archivo,archivo2):
     print('\n\nmejor número de aristas monocromáticas: ')
     print(str(best))
     print('mejor individuo: ')
@@ -269,37 +190,36 @@ def imprimeResultados(best,best_ind,start_time):
     # bolsas.Muestra_Grafo(G)
     # bolsas.colorea_grafo(G,best_ind)
     # if best == 0:
-    #    archivo.write('Grafo#' + str(i + 1) + '\t' + str(numColores) + '\t' + str(time.time() - start_time) + '\n')
+    archivo.write(str(best[0])+ '\n')
+    archivo2.write(str(time.time() - start_time)+ '\n')
     # archivo.close()
-
-
 
 
 #***************************************  Algoritmo Genético   *********************************************
 def main():
     # =================================== Definicion de Grafos y lectura de grafos aleatorios ==================
-    #archivo = open("Resultados","w")
+    archivo = open("NAM","w")
+    archivo2 = open("Tiempo", "w")
     #for i in range(10):
 
     #print('\n***Grafo#' + str(i + 1))
     #carpeta='Grafos' + str(numNodosAle) + 'P' + str(probabilidad)
     #nombre= '/G' + str(numNodosAle) + '_' + str(probabilidad) +'_' + str(grafo)#+ str(i+1)
-    #nombre = '/G' + str(probabilidad) + '_' + str(grafo)#+ str(i + 1)
+    #nombre = '/G' + str(probabilidad) + '_' + str(i + 1)#+ str(grafo)
     #Nombre_benchmark = carpeta + nombre
 
     G = bolsas.crea_grafo(Nombre_benchmark) #Crea el grafo apartir de un archivo de texto
-    #G=bolsas.crea_grafo_aleatorio(numNodosAle, probabilidad)   #Crea un grafo a partir de un número de nodos y una probabilidad
+    # G=bolsas.crea_grafo_aleatorio(numNodosAle, probabilidad)   #Crea un grafo a partir de un número de nodos y una probabilidad
     #G = Lee_Grafo(path + Nombre_benchmark)
-    #print(Matriz_Adyacencia)
+    # print(Matriz_Adyacencia)
     numNodos = max(G.nodes)
 
     # ==========================================================================================================
-    #=================================== Definicion de variables y estructuras de datos ========================
+    # =================================== Definicion de variables y estructuras de datos ========================
     ind = 0
-    mitad_poblacion = int(tam_poblacion / 2)
     termina = False
     NumGenIgual = 3
-    best= np.array([np.inf])
+    best = np.array([np.inf])
     bestAnt = []
     best_ind = [0]
     poblacion = []
@@ -309,45 +229,33 @@ def main():
     AMonoNuevo = []
     probabilidadeshijo = []
     ind_padres = []
-
-    #Estructuras de los nuevos individuos
+    #Estructuras para los nuevos individuos
     nuevos_individuos = []
     AMonoNuevo = []
     ind_padres = []
     probabilidadeshijo = []
-    Padres = [] #Lista que contendrá a los dos padres a elegidos
+    mitad_poblacion = int(tam_poblacion / 2)
     # ==========================================================================================================
-    #=================================== Definicion de variables para CUDA =====================================
-    # indispensables para CUDA
-    Matriz_Adyacencia = nx.to_numpy_matrix(G, nodelist=sorted(G.nodes()), dtype=int)
-    nuevos_individuosNp = np.zeros((mitad_poblacion, numColores, numNodos), dtype=np.int32)
-    proba_hijoNp = np.zeros((mitad_poblacion, numColores), dtype=np.float32)
-    AMonoNuevoNp = np.zeros((mitad_poblacion), dtype=np.int32)
-    bloques = 8
-    hilos = 2
-    TotalHilos = bloques * hilos
-    rng_states = create_xoroshiro128p_states((bloques * hilos) * bloques, seed=1)
-    # ==========================================================================================================
-    #=================================== Inicia Algoritmo genético =============================================
+    # =================================== Inicia Algoritmo genético =============================================
     start_time = time.time()
-    InicializacionPoblacion(poblacion, probabilidades, G, numNodos)
+    InicializacionPoblacion(poblacion, probabilidades, G,numNodos)
     if Busqueda_Local(G, AMonocromaticas, poblacion, probabilidades, best, best_ind, termina):
         termina = True
-    if not termina: #Continua si NO encontró un individuo con aristas monocromáticas igual a cero
+    if not termina: #Continua si arriba NO encontró un individuo con aristas monocromáticas igual a cero
         for gen in range(numGeneraciones):
             for p in range(mitad_poblacion):
-                Padres = EligePadres(poblacion,numNodos,ind_padres,probabilidadeshijo)
-                nuevos_individuos.append(CruzaPadres(Padres,probabilidadeshijo,AMonoNuevo, numNodos, G))
+                Padres = EligePadres(poblacion, numNodos, ind_padres, probabilidadeshijo)
+                nuevos_individuos.append(CruzaPadres(Padres, probabilidadeshijo, AMonoNuevo, numNodos, G))
                 ActualizaMejor(AMonocromaticas, poblacion, best, best_ind, ind, termina)
-            convierte_individuonumpy(nuevos_individuos, probabilidadeshijo, AMonoNuevo, nuevos_individuosNp,proba_hijoNp, AMonoNuevoNp,mitad_poblacion, numColores)
-            BusquedaLocal_CUDA[bloques, hilos](nuevos_individuosNp, proba_hijoNp, AMonoNuevoNp, Matriz_Adyacencia, hilos, numNodos, mitad_poblacion, rng_states)  # realiza la búsqueda local en CUDA
             for j in range(mitad_poblacion):
-                ActualizaPoblacionCUDA(poblacion, nuevos_individuosNp[j], AMonocromaticas, AMonoNuevoNp[j],probabilidades, proba_hijoNp, ind_padres[j],numNodos)  # reemplaza al hijo con el peor individuo
+                AMonoNuevo[j] = BusquedaLocal(nuevos_individuos[j], probabilidadeshijo[j],AMonoNuevo[j], G)   #realiza la búsqueda local con el número de aristas monocromáticas del nuevo individuo
+                ActualizaPoblacion(poblacion, nuevos_individuos[j], AMonocromaticas, AMonocromaticas[j], probabilidades, probabilidadeshijo[j], ind_padres[j]) #reemplaza al hijo con el peor individuo
                 ActualizaMejor(AMonocromaticas, poblacion, best, best_ind, ind, termina)
-            if Termina_Generacion(bestAnt,AMonoNuevo,gen,NumGenIgual) == 0:
+            if Termina_Generacion(bestAnt, AMonoNuevo, gen, NumGenIgual) == 0:
                 break
-    imprimeResultados(best,best_ind,start_time)
-    #=================================== Termina Algoritmo genético =============================================
+    imprimeResultados(best, best_ind, start_time,archivo,archivo2)
+    # =================================== Termina Algoritmo genético =============================================
+    print("Terminó")
 
 if __name__ == '__main__':
     main()
